@@ -93,9 +93,9 @@ class Model(dict):
                 shape=(d, d), where d is the dimensionality of param.
 
         """
-        grad_sum = np.zeros(shape=state[param].shape)
+        grad_sum = np.zeros(shape=(state[param].size, 1))
         if hessian_required:
-            hessian_sum = np.zeros(shape=(state[param].shape[0], state[param].shape[0]))
+            hessian_sum = np.zeros(shape=(state[param].size, state[param].size))
 
         for dist in self.values():
             grad_out = dist.grad_log_p(state, param, hessian_required=hessian_required)

@@ -309,7 +309,7 @@ class ManifoldMALA(MetropolisHastings):
         prop_state = deepcopy(current_state)
 
         mu_cr, chol_cr = self._proposal_params(current_state)
-        prop_state[self.param] = gmrf.sample_normal(mu_cr, L=chol_cr)
+        prop_state[self.param] = gmrf.sample_normal(mu_cr, L=chol_cr).reshape(current_state[self.param].shape)
         logp_pr_g_cr = self._log_proposal_density(prop_state, mu_cr, chol_cr)
 
         mu_pr, chol_pr = self._proposal_params(prop_state)
@@ -339,7 +339,8 @@ class ManifoldMALA(MetropolisHastings):
         grad_cr, hessian_cr = self.model.grad_log_p(current_state, param=self.param, hessian_required=True)
         precision_cr = hessian_cr / (self.step**2)
         chol_cr = gmrf.cholesky(precision_cr)
-        mu_cr = current_state[self.param] + (1 / 2) * gmrf.cho_solve((chol_cr, True), grad_cr).reshape(grad_cr.shape)
+        mu_cr = current_state[self.param].reshape(grad_cr.shape) + \
+              (1 / 2) * gmrf.cho_solve((chol_cr, True), grad_cr).reshape(grad_cr.shape)
         return mu_cr, chol_cr
 
     def _log_proposal_density(self, state: dict, mu: np.ndarray, chol: np.ndarray) -> np.ndarray:
@@ -364,5 +365,5 @@ class ManifoldMALA(MetropolisHastings):
             (np.ndarray): log-transition probability.
 
         """
-        w = chol.transpose() @ (state[self.param] - mu)
+        w = chol.transpose() @ (state[self.param].reshape(mu.shape) - mu)
         return np.sum(np.log(chol.diagonal())) - 0.5 * w.T.dot(w)

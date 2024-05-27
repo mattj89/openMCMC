@@ -44,6 +44,10 @@ pytest-cases = ">=3.8.1"
 mkdocs-material = ">=9.5.7"
 mkdocstrings-python = ">=1.8.0"
 
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.4"
+
 [tool.pytest.ini_options]
 addopts = "--cov=openmcmc --cov-fail-under=90"
 testpaths = [
