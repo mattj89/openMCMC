@@ -4,6 +4,7 @@ import numpy as np
 from scipy import sparse
 from typing import Union
 from dataclasses import dataclass
+from copy import deepcopy
 
 import jax.numpy as jnp
 from jax.experimental import sparse as sparse_jax
@@ -18,6 +19,8 @@ from openmcmc.model import Model
 from openmcmc.sampler.sampler import NormalNormal
 from openmcmc.sampler.metropolis_hastings import ManifoldMALA
 from openmcmc.mcmc import MCMC
+
+import matplotlib.pyplot as plt
 
 """
 Set up a test parameter class.
@@ -56,8 +59,8 @@ class TestParameter(Parameter_JAX):
         dx = x[:, [0]] - z[:, [0]].T
         dy = x[:, [1]] - z[:, [1]].T
         dz = x[:, [2]] - z[:, [2]].T
-        sig = jnp.tan(gam * 180.0 / jnp.pi) * dx
-        A = 1.0 / (2.0 * jnp.pi * sig * wsp) * jnp.exp(- 0.5 * jnp.power(dy / sig, 2)) * \
+        sig = jnp.tan(gam * jnp.pi / 180.0) * dx
+        A = 1e6 / (2.0 * jnp.pi * sig * wsp * 0.67) * jnp.exp(- 0.5 * jnp.power(dy / sig, 2)) * \
             jnp.exp(- 0.5 * jnp.power(dz / sig, 2))
         return A
 
@@ -81,14 +84,14 @@ for i in range(3):
 state["z"] = jnp.array(z)
 
 # sensor locations
-n_sensor = 200
+n_sensor = 20
 x = np.concatenate((20.0 * np.ones((n_sensor, 1)),
                     np.atleast_2d(np.linspace(-10, 10, n_sensor)).T,
-                    np.zeros((n_sensor, 1))), axis=1)
+                    np.random.uniform(lim[2][0], lim[2][1], size=(n_sensor, 1))), axis=1)
 state["x"] = jnp.array(x)
 
 # wind sigma parameter
-state["gam"] = jnp.array([[1.0]])
+state["gam"] = jnp.array([[5.0]])
 
 # wind speed
 state["wsp"] = jnp.array([[3.0]])
@@ -98,7 +101,7 @@ max_emis = 10.0
 state["s"] = jnp.array(np.random.uniform(0, max_emis, size=(n_source, 1)))
 
 # initialise the precision matrix
-std_msr = 0.00001
+std_msr = 100.0
 state["Q"] = ((1.0 / std_msr) ** 2) * jnp.eye(n_sensor)
 
 # prior for mu
@@ -142,8 +145,9 @@ prior_s.param_list = ["s"]
 mdl = Model([dist, prior_s])
 
 # set up the samplers
-sampler = [ManifoldMALA("z", mdl),
-           NormalNormal("s", mdl)]
+# sampler = [ManifoldMALA("z", mdl),
+#            NormalNormal("s", mdl)]
+sampler = [ManifoldMALA("z", mdl)]
 sampler[0].max_variable_size = (n_source, 3)
 
 
@@ -169,32 +173,51 @@ for i in range(n_source * 3):
 grad_fun = grad(mdl["y"].log_p, argnums=0)
 grad_dict = grad_fun(state)
 
-# def temp_log_p(state: dict, grad_value: jnp.ndarray) -> jnp.ndarray:
-#     state_copy = state.copy()
-#     state_copy["z"] = grad_value
-#     return mdl["y"].log_p(state_copy)
-# check_grads(temp_log_p, (state, state["z"]), order=1)
-# step = 1e-3
-# grad_diff = np.zeros((n_source * 3, 1))
-# for i in range(n_source * 3):
-#     grad_plus = temp_log_p(state=state, grad_value=state["z"].at[i % n_source, i // n_source].add(step))
-#     grad_centre = temp_log_p(state=state, grad_value=state["z"])
-#     grad_diff[i] = (grad_plus - grad_centre) / step
+"""
+Run the MCMC.
+"""
 
-# grad_z_fd = np.zeros((n_source * 3, 1))
-# for i in range(n_source * 3):
-#     state_copy = state.copy()
-#     state_copy["z"] = state["z"].at[i % n_source, i // n_source].add(1e-4)
-#     grad_z_fd[i] = (mdl["y"].log_p(state_copy) - mdl["y"].log_p(state)) / 1e-4
-#     # for j in range(n_source * 3):
+# copy the state and move the initial source locations
+state_init = deepcopy(state)
+# state_init["z"] = jnp.array(np.random.uniform(-10, 10, size=(n_source, 3)))
+state_init["z"] += jnp.array(np.concatenate((np.random.normal(0, 1.0, size=(n_source, 1)),
+                                             np.random.normal(0, 1.0, size=(n_source, 1)),
+                                             np.random.normal(0, 0.5, size=(n_source, 1))), axis=1))
+
+# change the step size for the mMALA
+sampler[0].step = 2.0e-1
 
 # set up the MCMC object
-# mcmc = MCMC(state, sampler, model=mdl, n_burn=100, n_iter=100)
-# mcmc.run_mcmc()
-
-# TODO (16/05/24): NormalNormal case runs up to predictor_conditional- need to implement this bit, and then run again.
+mcmc = MCMC(state_init, sampler, model=mdl, n_burn=10, n_iter=10000)
+mcmc.run_mcmc()
 
 # NOTE (16/05/24): Don't seem to have functionality for sparse matrix cholesky factorization in JAX yet. Check whether
 # everything still works when we just use scipy.sparse matrices instead.
 
-# mcmc.state["z"]
+# plot the results for the source locations
+state["z"]
+mcmc.state["z"]
+state_init["z"]
+
+plt.figure()
+for i in range(n_source):
+    plt.plot(mcmc.store["z"][i, 0, :].flatten(), mcmc.store["z"][i, 1, :].flatten(), label="Sampled")
+    plt.plot(state["z"][i, 0], state["z"][i, 1], "rx", label="True")
+plt.grid()
+plt.show()
+
+"""
+Notes (27/05/24):
+    - In general, the approach seems to work (and JAX seems to be pretty speedy at computing the gradients).
+    - There is certainly an issue with doing m-MALA:
+        * Hessians are commonly not positive definite (-ve definite).
+        * Regularization by dropping -ve eigenvalues is relatively straightforward.
+        * But even after this, the sampler is SUPER sensitive to step size.
+    - MALA is better, but still sensitive to step size.
+    - Maybe we should eventually consider adaptive step-size.
+
+For the JAX distributions/parameters:
+    - We need to set up a version of the LinearCombination case that can separately handle the Gaussian and
+        non-Gaussian cases.
+    
+"""

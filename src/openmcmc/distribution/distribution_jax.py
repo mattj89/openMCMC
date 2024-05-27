@@ -83,9 +83,20 @@ class Normal_JAX(Distribution_JAX):
         grad_log_p = np.asarray(grad_log_p).reshape((state[param].size, 1))
         if hessian_required:
             hess_log_p = self.hessian_functions[param](state, state[param])
-            # hess_diag = -np.asarray(hess_log_p).reshape((state[param].size, state[param].size)).diagonal()
-            # hess_log_p = np.diag(np.maximum(hess_diag, 1e-6))
             hess_log_p = -np.asarray(hess_log_p).reshape((state[param].size, state[param].size))
+            hess_log_p = self.ensure_hessian_positive_def(hess_log_p, eig = False)
             return grad_log_p, hess_log_p
         else:
             return grad_log_p
+        
+    def ensure_hessian_positive_def(self, hess_log_p: np.ndarray, eig: bool = True) -> np.ndarray:
+        """Enforce positive definiteness of the Hessian."""
+        if eig:
+            hess_eig = np.linalg.eig(hess_log_p)
+            eig_positive = np.maximum(hess_eig.eigenvalues, 1e0)
+            hess_recon = hess_eig.eigenvectors @ np.diag(eig_positive) @ hess_eig.eigenvectors.T
+        else:
+            hess_diag = hess_log_p.diagonal()
+            hess_diag = 1e5 * np.ones_like(hess_diag)
+            hess_recon = np.diag(np.maximum(hess_diag, 1e0))
+        return hess_recon
