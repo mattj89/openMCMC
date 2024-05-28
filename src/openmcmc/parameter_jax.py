@@ -24,7 +24,7 @@ class Parameter_JAX(ABC):
     
 
 @dataclass
-class Identity(Parameter_JAX):
+class Identity_JAX(Parameter_JAX):
     """Un-transformed parameter case."""
     form: str
 
@@ -33,7 +33,7 @@ class Identity(Parameter_JAX):
     
 
 @dataclass
-class LinearCombination(Parameter_JAX):
+class LinearCombination_JAX(Parameter_JAX):
     """Matrix-vector multiplication parameter class."""
     form: dict
 
@@ -52,7 +52,31 @@ class LinearCombination(Parameter_JAX):
             if prm not in term_to_exclude:
                 sum_terms += state[prefactor] @ state[prm]
         return sum_terms
+
+
+@dataclass
+class LinearCombinationDependent_JAX(LinearCombination_JAX):
+    """Matrix-vector multiplication parameter class, where the prefactor matrix is dependent on other components of the
+    state.
     
+    """
+    form: dict
+
+    def predictor(self, state: dict, update_state: bool = True) -> jnp.ndarray:
+        """Evaluate the predictor function.
+        
+        Args:
+            state: Current state of the model.
+            update_state: Whether to update the state with information calculated in the function
+        """
+        if update_state:
+            state = self.update_prefactors(state)
+        return self.predictor_conditional(state)
+    
+    @abstractmethod
+    def update_prefactors(self, state: dict) -> dict:
+        """Update the prefactor matrices."""
+
 
 @dataclass
 class Transformed(Parameter_JAX):

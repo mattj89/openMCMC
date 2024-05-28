@@ -219,5 +219,14 @@ Notes (27/05/24):
 For the JAX distributions/parameters:
     - We need to set up a version of the LinearCombination case that can separately handle the Gaussian and
         non-Gaussian cases.
+
+IDEA (think about whether it works):
+    - Push anything to do with the state udating in the sampler down to the parameter layer.
+    - When we evaluate dist.log_p(), we have an input flag that allows us to update the state.
+    - When we evalues param.predictot(), the above flag also gets passed down.
+    - Then in the parameter class, we can implement bespoke functionality for what happens when we evaluate the density
+        -> i.e. we update the values of any associated parameters.
+    - Can we handle the reversible jump situation also in this way? Would need to pass some information down about
+        columns to add/delete if so.
     
 """

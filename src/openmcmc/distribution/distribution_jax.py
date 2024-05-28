@@ -74,8 +74,6 @@ class Normal_JAX(Distribution_JAX):
                 return self.log_p(state_copy)
             self.grad_functions[param] = jit(grad(temp_log_p, argnums=1))
             self.hessian_functions[param] = jit(hessian(temp_log_p, argnums=1))
-            # self.hessian_functions[param] = jacfwd(self.grad_functions[param], argnums=1)
-            # self.hessian_functions[param] = jacfwd(self.grad_functions[param], argnums=1)
     
     def grad_log_p(self, state: dict, param: str, hessian_required: bool = True) -> jnp.ndarray:
         """Evaluate the gradient of the log-posterior distribution."""
