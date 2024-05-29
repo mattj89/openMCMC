@@ -60,18 +60,18 @@ class MCMC:
         """
         self.state = copy(self.state)
 
-        for key, term in self.state.items():
-            if sparse.issparse(term):
-                continue
+        # for key, term in self.state.items():
+        #     if sparse.issparse(term):
+        #         continue
 
-            if not isinstance(term, np.ndarray):
-                term = np.array(term, ndmin=2, dtype=np.float64)
-                if np.shape(term)[0] == 1:
-                    term = term.T
-            elif term.ndim < 2:
-                term = np.atleast_2d(term).T
+        #     if not isinstance(term, np.ndarray):
+        #         term = np.array(term, ndmin=2, dtype=np.float64)
+        #         if np.shape(term)[0] == 1:
+        #             term = term.T
+        #     elif term.ndim < 2:
+        #         term = np.atleast_2d(term).T
 
-            self.state[key] = term
+        #     self.state[key] = term
 
         for sampler in self.samplers:
             if sampler.param not in self.state:

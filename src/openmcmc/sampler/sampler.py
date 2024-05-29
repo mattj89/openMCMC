@@ -177,12 +177,14 @@ class NormalNormal(MCMCSampler):
         Q = sparse.csc_matrix((n_param, n_param))
         b = np.zeros(shape=(n_param, 1))
         for key, dist in self.model.items():
-            Q_rsp = dist.precision.predictor(current_state)
+            Q_rsp, _ = dist.precision.predictor(current_state)
+            Q_rsp = np.asarray(Q_rsp)
             if self._is_response[key]:
                 Q += Q_rsp
-                b += Q_rsp @ dist.mean.predictor(current_state)
+                mean_predictor, _ = dist.mean.predictor(current_state)
+                b += Q_rsp @ np.asarray(mean_predictor)
             else:
-                _, Q_dist = dist.grad_log_p(current_state, self.param)
+                Q_dist = dist.precision_conditional(current_state, self.param)
                 Q += Q_dist
                 if isinstance(dist.mean, Identity):
                     b += Q_rsp @ np.sum(current_state[key], axis=1, keepdims=True)
