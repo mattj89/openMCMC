@@ -239,14 +239,14 @@ class RandomWalk(MetropolisHastings):
             mu = prop_state[self.param]
             step = self.step
         else:
-            mu = prop_state[self.param][:, param_index]
+            mu = prop_state[self.param][:, [param_index]]
             if self.step.shape[1] == 1:
                 step = self.step.flatten()
             else:
                 step = self.step[:, param_index].flatten()
 
         if self.domain_limits is None:
-            z = mu + norm.rvs(size=prop_state[self.param].shape, scale=step)
+            z = mu + norm.rvs(size=mu.shape, scale=step)
             logp_pr_g_cr = logp_cr_g_pr = 0.0
         else:
             lb = self.domain_limits[:, 0]
@@ -258,7 +258,7 @@ class RandomWalk(MetropolisHastings):
         if param_index is None:
             prop_state[self.param] = z
         else:
-            prop_state[self.param][:, param_index] = z
+            prop_state[self.param][:, [param_index]] = z
 
         if callable(self.state_update_function):
             prop_state = self.state_update_function(prop_state, param_index)

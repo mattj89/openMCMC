@@ -17,7 +17,7 @@ from openmcmc.parameter_jax import Parameter_JAX, LinearCombinationDependent_JAX
 from openmcmc.distribution.distribution_jax import Distribution_JAX, Normal_JAX
 from openmcmc.model import Model
 from openmcmc.sampler.sampler import NormalNormal
-from openmcmc.sampler.metropolis_hastings import ManifoldMALA
+from openmcmc.sampler.metropolis_hastings import ManifoldMALA, RandomWalkLoop
 from openmcmc.mcmc import MCMC
 
 import matplotlib.pyplot as plt
@@ -38,9 +38,9 @@ class TestParameter(LinearCombinationDependent_JAX):
     @staticmethod
     def plume(z: jnp.ndarray, x: jnp.ndarray, gam: jnp.ndarray, wsp: jnp.ndarray) -> jnp.ndarray:
         """Claculate a plume coupling."""
-        dx = x[:, [0]] - z[:, [0]].T
-        dy = x[:, [1]] - z[:, [1]].T
-        dz = x[:, [2]] - z[:, [2]].T
+        dx = x[:, [0]] - z[[0], :]
+        dy = x[:, [1]] - z[[1], :]
+        dz = x[:, [2]] - z[[2], :]
         sig = jnp.tan(gam * jnp.pi / 180.0) * dx
         A = 1e6 / (2.0 * jnp.pi * sig * wsp * 0.67 * 3600) * jnp.exp(- 0.5 * jnp.power(dy / sig, 2)) * \
             jnp.exp(- 0.5 * jnp.power(dz / sig, 2))
@@ -62,10 +62,10 @@ state = {}
 
 # source locations
 n_source = 1
-z = np.zeros(shape=(n_source, 3))
+z = np.zeros(shape=(3, n_source))
 for i in range(3):
-    z[:, i] = np.random.uniform(lim[i][0], lim[i][1], n_source)
-z[:, 2] = np.zeros(n_source)
+    z[i, :] = np.random.uniform(lim[i][0], lim[i][1], n_source)
+z[2, :] = np.zeros(n_source)
 state["z"] = jnp.array(z)
 
 # sensor locations
@@ -130,7 +130,13 @@ mdl = Model([dist, prior_s])
 sampler = [ManifoldMALA("z", mdl),
            NormalNormal("s", mdl)]
 # sampler = [ManifoldMALA("z", mdl)]
-sampler[0].max_variable_size = (n_source, 3)
+sampler[0].max_variable_size = (3, n_source)
+
+# set up the sampler case 
+sampler_rand_walk = [RandomWalkLoop("z", mdl),
+                     NormalNormal("s", mdl)]
+sampler_rand_walk[0].max_variable_size = (3, n_source)
+sampler_rand_walk[0].step = np.array([[0.01]], ndmin=2)
 
 
 """
@@ -151,7 +157,7 @@ grad_z_fd = np.zeros((n_source * 3, 1))
 for i in range(n_source * 3):
     state_copy = state_numpy.copy()
     state_copy["z"] = state_copy["z"].copy()
-    state_copy["z"][i // 3, i % 3] += step
+    state_copy["z"][i % 3, i // 3] += step
     logp_copy, _ = mdl["y"].log_p(state_copy)
     grad_z_fd[i] = (logp_copy - logp_numpy) / step
 
@@ -175,28 +181,41 @@ state_init = deepcopy(state)
 # state_init["z"] += jnp.array(np.concatenate((np.random.normal(0, 1.0, size=(n_source, 1)),
 #                                              np.random.normal(0, 1.0, size=(n_source, 1)),
 #                                              np.random.normal(0, 0.1, size=(n_source, 1))), axis=1))
-state_init["z"] = jnp.array(np.array([-1, -1, 0.01], ndmin=2))
+state_init["z"] = jnp.array(np.array([-1, -1, 0.01], ndmin=2)).T
 # state_init["z"] = jnp.array(np.array([-5, -5, 0.01], ndmin=2))
 
 # change the step size for the mMALA
 sampler[0].step = 5.0e-1
 
 # set up the MCMC object
-mcmc = MCMC(state_init, sampler, model=mdl, n_burn=500, n_iter=1500)
+mcmc = MCMC(state_init, sampler, model=mdl, n_burn=500, n_iter=500)
 mcmc.run_mcmc()
 
 # NOTE (16/05/24): Don't seem to have functionality for sparse matrix cholesky factorization in JAX yet. Check whether
 # everything still works when we just use scipy.sparse matrices instead.
 
-# plot the results for the source locations
-state["z"]
-mcmc.state["z"]
-state_init["z"]
+plt.figure()
+for i in range(n_source):
+    plt.plot(mcmc.store["z"][0, i, :].flatten(), mcmc.store["z"][1, i, :].flatten(), label="Sampled")
+    plt.plot(state["z"][0, i], state["z"][1, i], "rx", label="True")
+plt.grid()
+plt.show()
+
+"""
+Set up and run the random walk equivalent.
+"""
+
+state_init_rand_walk = deepcopy(state_init)
+for key, val in state_init_rand_walk.items():
+    state_init_rand_walk[key] = np.asarray(val)
+
+mcmc_rand_walk = MCMC(state_init_rand_walk, sampler_rand_walk, model=mdl, n_burn=500, n_iter=500)
+mcmc_rand_walk.run_mcmc()
 
 plt.figure()
 for i in range(n_source):
-    plt.plot(mcmc.store["z"][i, 0, :].flatten(), mcmc.store["z"][i, 1, :].flatten(), label="Sampled")
-    plt.plot(state["z"][i, 0], state["z"][i, 1], "rx", label="True")
+    plt.plot(mcmc_rand_walk.store["z"][0, i, :].flatten(), mcmc_rand_walk.store["z"][1, i, :].flatten(), label="Sampled")
+    plt.plot(state["z"][0, i], state["z"][1, i], "rx", label="True")
 plt.grid()
 plt.show()
 
@@ -217,7 +236,7 @@ For the JAX distributions/parameters:
 IDEA (think about whether it works):
     - Push anything to do with the state udating in the sampler down to the parameter layer.
     - When we evaluate dist.log_p(), we have an input flag that allows us to update the state.
-    - When we evalues param.predictot(), the above flag also gets passed down.
+    - When we evalues param.predictor(), the above flag also gets passed down.
     - Then in the parameter class, we can implement bespoke functionality for what happens when we evaluate the density
         -> i.e. we update the values of any associated parameters.
     - Can we handle the reversible jump situation also in this way? Would need to pass some information down about
