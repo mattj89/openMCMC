@@ -5,26 +5,20 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Union, Tuple
 
-import numpy as np
-from scipy import sparse
-
 import jax.numpy as jnp
-from jax import grad, jit, vmap
-from jax import random
-from jax import jacfwd, jacrev
 
 
 @dataclass
-class Parameter_JAX(ABC):
+class Parameter_jax(ABC):
     """JAX version of the abstract parameter class."""
 
     @abstractmethod
-    def predictor(self, state: dict, update_state: bool) -> Tuple[jnp.ndarray, dict]:
+    def predictor(self, state: dict, update_state: bool = False) -> Tuple[jnp.ndarray, dict]:
         """Function which evaluates the predictor function."""
     
 
 @dataclass
-class Identity_JAX(Parameter_JAX):
+class Identity_jax(Parameter_jax):
     """Un-transformed parameter case."""
     form: str
 
@@ -33,7 +27,7 @@ class Identity_JAX(Parameter_JAX):
     
 
 @dataclass
-class LinearCombination_JAX(Parameter_JAX):
+class LinearCombination_jax(Parameter_jax):
     """Matrix-vector multiplication parameter class."""
     form: dict
 
@@ -57,9 +51,15 @@ class LinearCombination_JAX(Parameter_JAX):
 
 
 @dataclass
-class LinearCombinationDependent_JAX(LinearCombination_JAX):
+class LinearCombinationDependent_jax(LinearCombination_jax):
     """Matrix-vector multiplication parameter class, where the prefactor matrix is dependent on other components of the
     state.
+
+    This class is intended for cases where some of the parameters feature linearly in the predictor, and thus can be
+    updated using conjugate sampling (e.g. NormalNormal), whereas others feature non-linearliy and are updated with
+    Metropolis-Hastings-type methods (e.g. RandomWalk, ManifoldMALA).
+
+    The user has a choice whether or not to update the other elements of the state when calculating the predictor. 
     
     """
     
@@ -76,16 +76,17 @@ class LinearCombinationDependent_JAX(LinearCombination_JAX):
         return self.predictor_conditional(state), state
     
     @abstractmethod
-    def update_prefactors(self, state: dict) -> dict:
+    def update_prefactors(self, state: dict, **kwargs) -> dict:
         """Update the prefactor matrices."""
 
 
 @dataclass
-class Transformed(Parameter_JAX):
+class Transformed(Parameter_jax):
     """Class for a generic functional transformation of the state."""
 
     def predictor(self, state: dict, update_state: bool = True) -> jnp.ndarray:
-        """Predictor function which applies transformation.
+        """Predictor function which applies a generic transformation (implemented using JAX functionality in
+        self.transformation()).
         
         Args:
             state (dict): Current parameter state.

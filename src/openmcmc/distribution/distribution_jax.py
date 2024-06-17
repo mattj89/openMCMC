@@ -14,12 +14,12 @@ from jax import random
 from jax import jacfwd, jacrev, hessian
 from jax.experimental import sparse as sparse_jax
 
-from openmcmc.parameter_jax import Parameter_JAX, Identity_JAX
+from openmcmc.parameter_jax import Parameter_jax, Identity_jax
 
 from openmcmc.gmrf import sparse_cholesky
 
 @dataclass
-class Distribution_JAX(ABC):
+class Distribution_jax(ABC):
     """Abstract distribution class for the JAX case."""
     
     response: str
@@ -37,37 +37,83 @@ class Distribution_JAX(ABC):
 
 
 @dataclass
-class Normal_JAX(Distribution_JAX):
-    """Normal distribution class."""
+class Normal_jax(Distribution_jax):
+    """Normal distribution implemented to use JAX funcitonality.
     
-    mean: Parameter_JAX
-    precision: Parameter_JAX
+    Attributes:
+        mean (Parameter_jax): parameter which determines the mean vector of the multivariate Normal distribution.
+        precision (Parameter_jax): parameter which determines the precision matrix of the multivariate Normal
+            distribution.
+        domain_response_lower (Union[float, None]): lower bound of the response domain.
+        domain_response_upper (Union[float, None]): upper bound of the response domain.
+
+        fixed_precision (bool): flag which indicates whether the precision matrix will have a fixed value for the
+            purpose of likelihood evaluations.
+        log_det_precision (Union[float, None]): pre-calculated log-determinant of the precision matrix.
+        
+        TODO (12/06/24): Think about this- may be better to implement bespoke functionality in the parameter class, so
+        we can deal with determinants of scaled matrix cases which are fixed up to a multiplicative constant.
+
+    """
+    
+    mean: Parameter_jax
+    precision: Parameter_jax
     domain_response_lower: Union[float, None] = None
     domain_response_upper: Union[float, None] = None
+
+    fixed_precision: bool = False
+    log_det_precision: Union[float, None] = None
+    jit_compile: bool = True
 
     def __post_init__(self):
         """Post intialisation: set up the JAX gradient."""
         self.initialise_grad()
+        if self.jit_compile:
+            self.log_p_jit = jit(self.log_p_internal, static_argnums=1)
+
+    def precompute_log_det_precision(self, state: dict):
+        """Pre-compute the log-determinant of the precision matrix- for use in situations where it will not affect
+        changes in likelihoods, so is essentially wasted computation.
+        """
+        self.fixed_precision = True
+        precision, state = self.precision.predictor(state, update_state=False)
+        chol_precision = np.linalg.cholesky(precision)
+        self.log_det_precision = jnp.sum(jnp.log(jnp.diag(chol_precision)))
     
-    def log_p(self, state: dict, update_state: bool = True) -> Tuple[jnp.ndarray, dict]:
+    def log_p_internal(self, state: dict, update_state: bool = True) -> Tuple[jnp.ndarray, dict]:
         """Evaluate the log-posterior distribution.
-        TODO (16/05/24): check whether we can throw in a standard sparse matrix and not affect the JAX autograd.
+
+        Args:
+            state (dict): dictionary containing current parameter infotmation.
+            update_state (bool): flag indicating whether a state update is required (in cases where dependent parameters
+                in the state will also change).
+
         """
         mean, state = self.mean.predictor(state, update_state=update_state)
         precision, state = self.precision.predictor(state, update_state=update_state)
-        # chol_precision = jnp.linalg.cholesky(precision)
+        if self.fixed_precision:
+            log_det_precision = self.log_det_precision
+        else:
+            log_det_precision = jnp.log(jnp.linalg.det(precision))
         exponent_term = jnp.vdot(state[self.response] - mean, precision @ (state[self.response] - mean))
-        # exponent_term = jnp.sum(jnp.power(chol_precision @ (state[self.response] - mean), 2.0))
-        log_det_precision = 1.0 # TODO (28/05/24): solve this
-        # log_det_precision = 2 * jnp.sum(jnp.log(chol_precision.diagonal()))
         log_p = 0.5 * (log_det_precision - mean.shape[0] * jnp.log(2 * jnp.pi) - exponent_term)
+        return log_p, state
+
+    def log_p(self, state: dict, update_state: bool = True) -> Tuple[jnp.ndarray, dict]:
+        """"""
+        if self.jit_compile:
+            log_p, state = self.log_p_jit(state)
+        else:
+            log_p, state = self.log_p_internal(state, update_state=update_state)
         return log_p, state
     
     def initialise_grad(self):
-        """Initialise the gradient function.
+        """Initialise the JAX gradient functions of the log-likelihood.
         
-        TODO (23/05/24): this works, but we can for sure design the function better if we decide to commit
-        to the JAX backend.
+        The traced JAX grad of a wrapper function is defined, such that we can obtain gradients of the log-likelihood
+        with respect to a specific sub-set of the state parameters- this avoids the need to compute gradients wrt all
+        state variables (which would result in wasted computation).
+        
         """
         self.grad_functions = {}
         self.hessian_functions = {}
@@ -75,11 +121,10 @@ class Normal_JAX(Distribution_JAX):
             def temp_log_p(state: dict, grad_value: jnp.ndarray, grad_name: str = param) -> jnp.ndarray:
                 state_copy = state.copy()
                 state_copy[grad_name] = grad_value
-                log_p, state_copy = self.log_p(state_copy, update_state=True)
+                log_p, state_copy = self.log_p_internal(state_copy, update_state=True)
                 return log_p
             self.grad_functions[param] = jit(sparse_jax.grad(temp_log_p, argnums=1))
-            # self.hessian_functions[param] = jit(hessian(temp_log_p, argnums=1))
-            self.hessian_functions[param] = jit(sparse_jax.jacfwd(sparse_jax.jacrev(temp_log_p, argnums=1), argnums=1))
+            self.hessian_functions[param] = jit(hessian(temp_log_p, argnums=1))
     
     def grad_log_p(self, state: dict, param: str, hessian_required: bool = True) -> jnp.ndarray:
         """Evaluate the gradient of the log-posterior distribution."""
@@ -88,7 +133,6 @@ class Normal_JAX(Distribution_JAX):
         if hessian_required:
             hess_log_p = self.hessian_functions[param](state, state[param])
             hess_log_p = -np.asarray(hess_log_p).reshape((state[param].size, state[param].size))
-            # hess_log_p = np.eye(grad_log_p.size)
             hess_log_p = self.ensure_hessian_positive_def(hess_log_p, eig = True)
             return grad_log_p, hess_log_p
         else:
@@ -98,11 +142,11 @@ class Normal_JAX(Distribution_JAX):
         """Enforce positive definiteness of the Hessian."""
         if eig:
             hess_eig = np.linalg.eig(hess_log_p)
-            eig_positive = np.maximum(hess_eig.eigenvalues, 1e0)
+            # eig_positive = np.maximum(hess_eig.eigenvalues, 1e0)
+            eig_positive = np.abs(hess_eig.eigenvalues)
             hess_recon = hess_eig.eigenvectors @ np.diag(eig_positive) @ hess_eig.eigenvectors.T
         else:
             hess_diag = hess_log_p.diagonal()
-            hess_diag = 1e5 * np.ones_like(hess_diag)
             hess_recon = np.diag(np.maximum(hess_diag, 1e0))
         return hess_recon
     

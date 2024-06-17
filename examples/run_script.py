@@ -13,8 +13,8 @@ from jax import random
 from jax import jacfwd, jacrev
 from jax.test_util import check_grads
 
-from openmcmc.parameter_jax import Parameter_JAX, LinearCombinationDependent_JAX, Identity_JAX
-from openmcmc.distribution.distribution_jax import Distribution_JAX, Normal_JAX
+from openmcmc.parameter_jax import Parameter_jax, LinearCombinationDependent_jax, Identity_jax
+from openmcmc.distribution.distribution_jax import Distribution_jax, Normal_jax
 from openmcmc.model import Model
 from openmcmc.sampler.sampler import NormalNormal
 from openmcmc.sampler.metropolis_hastings import ManifoldMALA, RandomWalkLoop
@@ -27,7 +27,7 @@ Set up a test parameter class.
 """
 
 @dataclass
-class TestParameter(LinearCombinationDependent_JAX):
+class TestParameter(LinearCombinationDependent_jax):
     """Test parameter class with a generic transformation function."""
     
     def update_prefactors(self, state: dict) -> dict:
@@ -87,7 +87,7 @@ max_emis = 10.0
 state["s"] = jnp.array(np.random.uniform(0, max_emis, size=(n_source, 1)))
 
 # initialise the precision matrix
-std_msr = 0.1
+std_msr = 0.5
 # state["Q"] = ((1.0 / std_msr) ** 2) * sparse_jax.eye(n_sensor)
 state["Q"] = ((1.0 / std_msr) ** 2) * jnp.eye(n_sensor)
 
@@ -114,7 +114,8 @@ plt.grid()
 plt.show()
 
 # create the distribution
-dist = Normal_JAX(response="y", grad_list=["z", "s"], mean=param, precision=Identity_JAX(form="Q"))
+dist = Normal_jax(response="y", grad_list=["z", "s"], mean=param, precision=Identity_jax(form="Q"))
+dist.precompute_log_det_precision(state)
 dist.param_list = ["z", "s"]
 
 """
@@ -122,7 +123,7 @@ Set up the model and samplers.
 """
 
 # initialise model
-prior_s = Normal_JAX(response="s", grad_list=["s"], mean=Identity_JAX(form="mu_s"), precision=Identity_JAX(form="P_s"))
+prior_s = Normal_jax(response="s", grad_list=["s"], mean=Identity_jax(form="mu_s"), precision=Identity_jax(form="P_s"))
 prior_s.param_list = ["s"]
 mdl = Model([dist, prior_s])
 
@@ -177,18 +178,13 @@ Run the MCMC.
 
 # copy the state and move the initial source locations
 state_init = deepcopy(state)
-# state_init["z"] = jnp.array(np.random.uniform(-10, 10, size=(n_source, 3)))
-# state_init["z"] += jnp.array(np.concatenate((np.random.normal(0, 1.0, size=(n_source, 1)),
-#                                              np.random.normal(0, 1.0, size=(n_source, 1)),
-#                                              np.random.normal(0, 0.1, size=(n_source, 1))), axis=1))
-state_init["z"] = jnp.array(np.array([-1, -1, 0.01], ndmin=2)).T
-# state_init["z"] = jnp.array(np.array([-5, -5, 0.01], ndmin=2))
+state_init["z"] = jnp.array(np.array([-5, 0, 0.01], ndmin=2)).T
 
 # change the step size for the mMALA
-sampler[0].step = 5.0e-1
+sampler[0].step = 1.0e0
 
 # set up the MCMC object
-mcmc = MCMC(state_init, sampler, model=mdl, n_burn=500, n_iter=500)
+mcmc = MCMC(state_init, sampler, model=mdl, n_burn=1000, n_iter=500)
 mcmc.run_mcmc()
 
 # NOTE (16/05/24): Don't seem to have functionality for sparse matrix cholesky factorization in JAX yet. Check whether
@@ -209,7 +205,7 @@ state_init_rand_walk = deepcopy(state_init)
 for key, val in state_init_rand_walk.items():
     state_init_rand_walk[key] = np.asarray(val)
 
-mcmc_rand_walk = MCMC(state_init_rand_walk, sampler_rand_walk, model=mdl, n_burn=500, n_iter=500)
+mcmc_rand_walk = MCMC(state_init_rand_walk, sampler_rand_walk, model=mdl, n_burn=1000, n_iter=500)
 mcmc_rand_walk.run_mcmc()
 
 plt.figure()

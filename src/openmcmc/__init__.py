@@ -11,4 +11,5 @@ __all__ = [
     "mcmc",
     "model",
     "parameter",
+    "parameter_jax"
 ]

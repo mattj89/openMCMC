@@ -7,4 +7,5 @@
 __all__ = [
     "distribution",
     "location_scale",
+    "distribution_jax"
 ]

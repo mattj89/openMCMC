@@ -149,10 +149,10 @@ class MetropolisHastings(MCMCSampler):
         self.accept_rate.increment_proposal()
         logp_cs = 0
         logp_pr = 0
-        for model in self.model.values():
-            logp_cs_increment, current_state = model.log_p(current_state)
+        for dist in self.model.values():
+            logp_cs_increment, current_state = dist.log_p(current_state, update_state=True)
             logp_cs += logp_cs_increment
-            logp_pr_increment, prop_state = model.log_p(prop_state)
+            logp_pr_increment, prop_state = dist.log_p(prop_state, update_state=True)
             logp_pr += logp_pr_increment
         log_accept = logp_pr + logp_cr_g_pr - (logp_cs + logp_pr_g_cr)
 
@@ -343,7 +343,6 @@ class ManifoldMALA(MetropolisHastings):
         chol_cr = gmrf.cholesky(precision_cr)
         mu_cr = current_state[self.param].reshape(grad_cr.shape) + \
               (1 / 2) * gmrf.cho_solve((chol_cr, True), grad_cr).reshape(grad_cr.shape)
-        # chol_cr = chol_cr / 10.0
         return mu_cr, chol_cr
 
     def _log_proposal_density(self, state: dict, mu: np.ndarray, chol: np.ndarray) -> np.ndarray:
