@@ -54,6 +54,6 @@ simply open an issue with a relevant title. Don't forget to give the project a s
 For more details on contributing to this repository, see the [Contributing guide](https://github.com/sede-open/openMCMC/blob/main/CONTRIBUTING.md).
 
 ***
-# Licensing
+# Licensing 
 
 Distributed under the Apache License Version 2.0. See the [license file](https://github.com/sede-open/openMCMC/blob/main/LICENSE.md) for more information.
