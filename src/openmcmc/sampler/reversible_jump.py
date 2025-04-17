@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Callable, Tuple, Union
 
 import numpy as np
+import jax.numpy as jnp
 from scipy.stats import randint, uniform
 
 from openmcmc import gmrf
@@ -128,8 +129,11 @@ class ReversibleJump(MetropolisHastings):
 
         for associated_key in self.associated_params:
             new_element = self.model[associated_key].rvs(state=current_state, n=1)
-            prop_state[associated_key] = np.concatenate((prop_state[associated_key], new_element), axis=1)
-            log_prop_density += self.model[associated_key].log_p(current_state, by_observation=True)
+            prop_state[associated_key] = jnp.concatenate((prop_state[associated_key], new_element), axis=1)
+            log_p_birth, _ = self.model[associated_key].log_p(current_state, by_observation=True)
+            log_prop_density += log_p_birth
+            # log_prop_density += self.model[associated_key].log_p(current_state, by_observation=True)
+            # NOTE (11/04/25): this has been adapted to account for the suggested behaviour in the JAX version.
         if callable(self.state_birth_function):
             prop_state, logp_pr_g_cr, logp_cr_g_pr = self.state_birth_function(current_state, prop_state)
         else:
@@ -172,8 +176,13 @@ class ReversibleJump(MetropolisHastings):
         log_prop_density = 0
         deletion_index = randint.rvs(low=0, high=current_state[self.param])
         for associated_key in self.associated_params:
-            prop_state[associated_key] = np.delete(prop_state[associated_key], obj=deletion_index, axis=1)
-            log_prop_density += self.model[associated_key].log_p(current_state, by_observation=True)
+            prop_state[associated_key] = jnp.delete(
+                prop_state[associated_key], obj=deletion_index, axis=1, assume_unique_indices=True
+            )
+            log_p_death, _ = self.model[associated_key].log_p(current_state, by_observation=True)
+            log_prop_density += log_p_death
+            # log_prop_density += self.model[associated_key].log_p(current_state, by_observation=True)
+            # NOTE (11/04/25): this has been adapted to account for the suggested behaviour in the JAX version.
 
         if callable(self.state_death_function):
             prop_state, logp_pr_g_cr, logp_cr_g_pr = self.state_death_function(

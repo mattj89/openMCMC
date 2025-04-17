@@ -27,6 +27,16 @@ class Identity_jax(Parameter_jax):
     
 
 @dataclass
+class ScaledMatrix_jax(Parameter_jax):
+    """Parameter consisting of a fixed matirx multiplied by a scalar variable."""
+    matrix: str
+    scalar: str
+
+    def predictor(self, state: dict, update_state: bool = False) -> Tuple[jnp.ndarray, dict]:
+        return state[self.scalar] * state[self.matrix], state
+    
+
+@dataclass
 class LinearCombination_jax(Parameter_jax):
     """Matrix-vector multiplication parameter class."""
     form: dict

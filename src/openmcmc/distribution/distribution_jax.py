@@ -155,3 +155,41 @@ class Normal_jax(Distribution_jax):
         precision, state = self.precision.predictor(state, update_state=False)
         prefactor = state[self.mean.form[param]]
         return np.asarray(prefactor.T @ (precision @ prefactor))
+    
+
+@dataclass
+class Uniform_jax(Distribution_jax):
+    """Uniform distribution for the JAX cases."""
+
+    domain_response_lower: Union[float, None] = None
+    domain_response_upper: Union[float, None] = None
+    
+    def log_p(self, state: dict, update_state: bool = True, by_observation: bool = False) -> Tuple[jnp.ndarray, dict]:
+        """Dummy log-likelihood evaluation function for JAX case."""
+        n = state[self.response].shape[1]
+        if by_observation:
+            return jnp.zeros(n), state
+        else:
+            return 0.0, state
+    
+    def grad_log_p(self, state: dict, param: str, hessian_required: bool = True) -> jnp.ndarray:
+        """Dummy gradient evaluation function for JAX case."""
+        grad_log_p = jnp.zeros((state[param].size, 1))
+        if hessian_required:
+            hess_log_p = jnp.zeros((state[param].size, state[param].size))
+            return grad_log_p, hess_log_p
+        else:
+            return grad_log_p
+        
+    def domain_range(self, state) -> np.ndarray:
+        """Calculate the range of the domain of the response."""
+        d = state[self.response].shape[0]
+        domain_range = self.domain_response_upper - self.domain_response_lower
+        if domain_range.size == 1:
+            domain_range = np.ones((d, 1)) * domain_range
+        return domain_range
+        
+    def rvs(self, state: dict, n: int = 1) -> jnp.ndarray:
+        """Random sampling for the JAX case."""
+        standard_unif = np.random.rand(state[self.response].shape[0], n)
+        return self.domain_response_lower + self.domain_range(state) * standard_unif
