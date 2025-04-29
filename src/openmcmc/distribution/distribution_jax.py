@@ -156,6 +156,15 @@ class Normal_jax(Distribution_jax):
         prefactor = state[self.mean.form[param]]
         return np.asarray(prefactor.T @ (precision @ prefactor))
     
+    def rvs(self, state: dict, n: int = 1) -> jnp.ndarray:
+        """Random sampling for the JAX case."""
+        # TODO (25/04/25): implemented by Copilot. Not run yet- check next week.
+        mean, state = self.mean.predictor(state, update_state=False)
+        precision, state = self.precision.predictor(state, update_state=False)
+        chol_precision = np.linalg.cholesky(precision)
+        standard_normal = np.random.randn(mean.shape[0], n)
+        return mean + chol_precision @ standard_normal
+    
 
 @dataclass
 class Uniform_jax(Distribution_jax):
