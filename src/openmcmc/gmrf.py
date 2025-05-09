@@ -24,6 +24,8 @@ from pandas.arrays import DatetimeArray
 from scipy import linalg, sparse
 from scipy.sparse import linalg as sparse_linalg
 from scipy.stats import truncnorm
+import jax.numpy as jnp
+import jax.scipy as jsp
 
 
 def sample_normal(
@@ -427,6 +429,8 @@ def solve(
     """
     if sparse.issparse(a) or sparse.issparse(b):
         return sparse_linalg.spsolve(a, b)
+    elif isinstance(a, jnp.ndarray):
+        return jnp.linalg.solve(a, b)
 
     return np.linalg.solve(a, b)
 
@@ -455,6 +459,8 @@ def cho_solve(c_and_lower: tuple, b: Union[np.ndarray, sparse.csc_matrix]) -> Un
 
         w = sparse_linalg.spsolve(L, b)
         return sparse_linalg.spsolve(U, w)
+    elif isinstance(b, jnp.ndarray):
+        return jsp.linalg.cho_solve(c_and_lower, b)
 
     return linalg.cho_solve(c_and_lower, b)
 
@@ -474,6 +480,8 @@ def cholesky(Q: Union[np.ndarray, sparse.csc_matrix], lower: bool = True) -> Uni
     """
     if sparse.issparse(Q):
         L = sparse_cholesky(Q)
+    elif isinstance(Q, jnp.ndarray):
+        L = jnp.linalg.cholesky(Q)
     else:
         L = np.linalg.cholesky(Q)
 

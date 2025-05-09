@@ -17,6 +17,8 @@ from typing import Callable, Tuple
 
 import numpy as np
 from scipy.stats import norm
+import jax
+import jax.numpy as jnp
 
 from openmcmc import gmrf
 from openmcmc.sampler.sampler import MCMCSampler
@@ -83,6 +85,15 @@ class MetropolisHastings(MCMCSampler):
 
     step: np.ndarray = field(default_factory=lambda: np.array([0.2], ndmin=2), init=True)
     accept_rate: AcceptRate = field(default_factory=lambda: AcceptRate(), init=False)
+    jit_compile: bool = False
+    proposal_jit = None
+
+    def __post_init__(self):
+        """Set up the jit compiled proposal if requested."""
+        super().__post_init__()
+        if self.jit_compile:
+            self.proposal_jit = jax.jit(self.proposal, static_argnums=1)
+            self._get_log_accept_jit = jax.jit(self._get_log_accept)
 
     @abstractmethod
     def proposal(self, current_state: dict, param_index: int = None) -> Tuple[dict, float, float]:
@@ -120,9 +131,34 @@ class MetropolisHastings(MCMCSampler):
             current_state (dict): with updated sample for self.param.
 
         """
-        prop_state, logp_pr_g_cr, logp_cr_g_pr = self.proposal(current_state)
-        current_state = self._accept_reject_proposal(current_state, prop_state, logp_pr_g_cr, logp_cr_g_pr)
+        if self.jit_compile:
+            prop_state, logp_pr_g_cr, logp_cr_g_pr = self.proposal_jit(current_state, None)
+            log_accept = self._get_log_accept_jit(current_state, prop_state, logp_pr_g_cr, logp_cr_g_pr)
+        else:
+            prop_state, logp_pr_g_cr, logp_cr_g_pr = self.proposal(current_state)
+            log_accept = self._get_log_accept(current_state, prop_state, logp_pr_g_cr, logp_cr_g_pr)
+
+        if self.accept_proposal(log_accept):
+            current_state = prop_state
+            self.accept_rate.increment_accept()
         return current_state
+
+    def _get_log_accept(
+        self, current_state: dict, prop_state: dict, logp_pr_g_cr: float, logp_cr_g_pr: float
+    ) -> jnp.ndarray:
+        """Function for wrapping computation of log acceptance probability.
+        TODO (02/05/25): better docstring for this.
+        """
+        self.accept_rate.increment_proposal()
+        logp_cs = 0
+        logp_pr = 0
+        for dist in self.model.values():
+            logp_cs_increment, current_state = dist.log_p(current_state, update_state=True)
+            logp_cs += logp_cs_increment
+            logp_pr_increment, prop_state = dist.log_p(prop_state, update_state=True)
+            logp_pr += logp_pr_increment
+        log_accept = logp_pr + logp_cr_g_pr - (logp_cs + logp_pr_g_cr)
+        return log_accept
 
     def _accept_reject_proposal(
         self, current_state: dict, prop_state: dict, logp_pr_g_cr: float, logp_cr_g_pr: float
@@ -156,9 +192,18 @@ class MetropolisHastings(MCMCSampler):
             logp_pr += logp_pr_increment
         log_accept = logp_pr + logp_cr_g_pr - (logp_cs + logp_pr_g_cr)
 
-        if self.accept_proposal(log_accept):
-            current_state = prop_state
+        # if self.accept_proposal(log_accept):
+        #     current_state = prop_state
+        #     self.accept_rate.increment_accept()
+        def true_fun(current_state: dict, prop_state: dict) -> dict:
             self.accept_rate.increment_accept()
+            return prop_state
+        def false_fun(current_state: dict, prop_state: dict) -> dict:
+            return current_state
+        prop_state = jax.lax.cond(
+            self.accept_proposal(log_accept)[0],
+            true_fun, false_fun, current_state, prop_state
+        )
         return current_state
 
     @staticmethod
@@ -173,6 +218,7 @@ class MetropolisHastings(MCMCSampler):
 
         """
         return np.log(np.random.rand()) < log_accept
+
 
 
 @dataclass
@@ -368,4 +414,6 @@ class ManifoldMALA(MetropolisHastings):
 
         """
         w = chol.transpose() @ (state[self.param].reshape(mu.shape) - mu)
+        if isinstance(chol, jnp.ndarray):
+            return jnp.sum(jnp.log(jnp.diag(chol))) - 0.5 * jnp.sum(w * w)
         return np.sum(np.log(chol.diagonal())) - 0.5 * w.T.dot(w)

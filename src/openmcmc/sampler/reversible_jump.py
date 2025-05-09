@@ -17,6 +17,7 @@ from typing import Callable, Tuple, Union
 import numpy as np
 import jax.numpy as jnp
 from scipy.stats import randint, uniform
+import jax
 
 from openmcmc import gmrf
 from openmcmc.sampler.metropolis_hastings import MetropolisHastings
@@ -89,12 +90,14 @@ class ReversibleJump(MetropolisHastings):
         """
         birth = self.get_move_type(current_state)
         if birth:
-            prop_state, logp_pr_g_cr, logp_cr_g_pr = self.birth_proposal(current_state=current_state)
+            birth_location = int(jnp.where(current_state["mask"] == 0, size=1)[0][0])
+            prop_state, logp_pr_g_cr, logp_cr_g_pr = self.birth_proposal(current_state=current_state, birth_location=birth_location)
         else:
-            prop_state, logp_pr_g_cr, logp_cr_g_pr = self.death_proposal(current_state=current_state)
+            death_location = int(jnp.where(current_state["mask"] == 1, size=1)[0][0])
+            prop_state, logp_pr_g_cr, logp_cr_g_pr = self.death_proposal(current_state=current_state, death_location=death_location)
         return prop_state, logp_pr_g_cr, logp_cr_g_pr
 
-    def birth_proposal(self, current_state: dict) -> Tuple[dict, float, float]:
+    def birth_proposal(self, current_state: dict, birth_location: IndentationError) -> Tuple[dict, float, float]:
         """Make a birth proposal move: INCREASES state[self.param] by 1.
 
         Also makes a proposal for a new element of an associated parameter, state[self.associated_params], by generating a draw
@@ -126,10 +129,15 @@ class ReversibleJump(MetropolisHastings):
         prop_state = deepcopy(current_state)
         prop_state[self.param] = prop_state[self.param] + 1
         log_prop_density = 0
+        # birth_location = int(jnp.where(prop_state["mask"] == 0, size=1)[0][0])
+        current_mask = current_state["mask"].astype(bool)
+        prop_state["mask"] = prop_state["mask"].at[birth_location].set(1.0)
+        prop_mask = prop_state["mask"].astype(bool)
 
         for associated_key in self.associated_params:
             new_element = self.model[associated_key].rvs(state=current_state, n=1)
-            prop_state[associated_key] = jnp.concatenate((prop_state[associated_key], new_element), axis=1)
+            # prop_state[associated_key] = jnp.concatenate((prop_state[associated_key], new_element), axis=1)
+            prop_state[associated_key] = prop_state[associated_key].at[:, [birth_location]].set(new_element)
             log_p_birth, _ = self.model[associated_key].log_p(current_state, by_observation=True)
             log_prop_density += log_p_birth
             # log_prop_density += self.model[associated_key].log_p(current_state, by_observation=True)
@@ -140,16 +148,16 @@ class ReversibleJump(MetropolisHastings):
             logp_pr_g_cr, logp_cr_g_pr = 0.0, 0.0
         if self.matching_params is not None:
             prop_state, logp_pr_g_cr, logp_cr_g_pr = self.matched_birth_transition(
-                current_state, prop_state, logp_pr_g_cr, logp_cr_g_pr
+                current_state, prop_state, logp_pr_g_cr, logp_cr_g_pr, birth_location, current_mask, prop_mask
             )
 
         p_birth, p_death = self.get_move_probabilities(current_state, True)
-        logp_pr_g_cr += np.log(p_birth) + log_prop_density[-1]
+        logp_pr_g_cr += np.log(p_birth) + log_prop_density
         logp_cr_g_pr += np.log(p_death)
 
         return prop_state, logp_pr_g_cr, logp_cr_g_pr
 
-    def death_proposal(self, current_state: dict) -> Tuple[dict, float, float]:
+    def death_proposal(self, current_state: dict, death_location: int) -> Tuple[dict, float, float]:
         """Make a death proposal move: DECREASES state[self.param] by 1.
 
         Also adjusts the associated parameter state[self.associated_params] by deleting a randomly-selected element.
@@ -174,11 +182,16 @@ class ReversibleJump(MetropolisHastings):
         prop_state = deepcopy(current_state)
         prop_state[self.param] = prop_state[self.param] - 1
         log_prop_density = 0
-        deletion_index = randint.rvs(low=0, high=current_state[self.param])
+        # deletion_index = randint.rvs(low=0, high=current_state[self.param])
+        # deletion_index = int(jnp.where(current_state["mask"] == 1, size=1)[0][0]) # TODO (01/05/25): need to make this randomly select.
+        current_mask = current_state["mask"].astype(bool)
+        prop_state["mask"] = prop_state["mask"].at[death_location].set(0.0)
+        prop_mask = prop_state["mask"].astype(bool)
+
         for associated_key in self.associated_params:
-            prop_state[associated_key] = jnp.delete(
-                prop_state[associated_key], obj=deletion_index, axis=1, assume_unique_indices=True
-            )
+            # prop_state[associated_key] = jnp.delete(
+            #     prop_state[associated_key], obj=deletion_index, axis=1, assume_unique_indices=True
+            # )
             log_p_death, _ = self.model[associated_key].log_p(current_state, by_observation=True)
             log_prop_density += log_p_death
             # log_prop_density += self.model[associated_key].log_p(current_state, by_observation=True)
@@ -186,23 +199,23 @@ class ReversibleJump(MetropolisHastings):
 
         if callable(self.state_death_function):
             prop_state, logp_pr_g_cr, logp_cr_g_pr = self.state_death_function(
-                current_state, prop_state, deletion_index
+                current_state, prop_state, death_location
             )
         else:
             logp_pr_g_cr, logp_cr_g_pr = 0.0, 0.0
         if self.matching_params is not None:
             prop_state, logp_pr_g_cr, logp_cr_g_pr = self.matched_death_transition(
-                current_state, prop_state, logp_pr_g_cr, logp_cr_g_pr, deletion_index
+                current_state, prop_state, logp_pr_g_cr, logp_cr_g_pr, death_location, current_mask, prop_mask
             )
 
         p_birth, p_death = self.get_move_probabilities(current_state, False)
         logp_pr_g_cr += np.log(p_death)
-        logp_cr_g_pr += np.log(p_birth) + log_prop_density[-1]
+        logp_cr_g_pr += np.log(p_birth) + log_prop_density
 
         return prop_state, logp_pr_g_cr, logp_cr_g_pr
 
     def matched_birth_transition(
-        self, current_state: dict, prop_state: dict, logp_pr_g_cr: float, logp_cr_g_pr: float
+        self, current_state: dict, prop_state: dict, logp_pr_g_cr: float, logp_cr_g_pr: float, birth_location: int, current_mask: np.ndarray, prop_mask: np.ndarray
     ) -> Tuple[dict, float, float]:
         """Generate a proposal for coefficients associated with a birth move, using the principle of matching the predictions before and after the move.
 
@@ -230,6 +243,7 @@ class ReversibleJump(MetropolisHastings):
         Args:
             current_state (dict): current parameter state as dictionary.
             prop_state (dict): proposed state dictionary, with updated basis matrix.
+            birth_location (int): location of the proposed birth.
             logp_pr_g_cr (float): transition probability for proposed state given current state.
             logp_cr_g_pr (float): transition probability for current state given proposed state.
 
@@ -244,21 +258,24 @@ class ReversibleJump(MetropolisHastings):
         proposal_scale = self.matching_params["scale"]
         proposal_limits = self.matching_params["limits"]
 
-        current_basis = current_state[matrix]
-        prop_basis = prop_state[matrix]
+        current_basis = current_state[matrix][:, current_mask[:, 0]]
+        prop_basis = prop_state[matrix][:, prop_mask[:, 0]]
         G = np.linalg.solve(
             prop_basis.T @ prop_basis + 1e-10 * np.eye(prop_basis.shape[1]), prop_basis.T @ current_basis
         )
         F = np.concatenate((G, np.eye(N=G.shape[0], M=1, k=-G.shape[0] + 1)), axis=1)
-        mu_star = G @ current_state[vector]
-        prop_state[vector] = deepcopy(mu_star)
+        mu_star = G @ current_state[vector][current_mask[:, 0]]
+        prop_state[vector] = prop_state[vector].at[prop_mask[:, 0]].set(deepcopy(mu_star))
 
         if proposal_limits is not None:
-            prop_state[vector][-1] = gmrf.truncated_normal_rv(
-                mean=mu_star[-1], scale=proposal_scale, lower=proposal_limits[0], upper=proposal_limits[1], size=1
+            prop_state[vector] = prop_state[vector].at[birth_location].set(
+                    gmrf.truncated_normal_rv(
+                    mean=mu_star[-1], scale=proposal_scale, lower=proposal_limits[0], upper=proposal_limits[1], size=1
+                )
             )
             logp_pr_g_cr += gmrf.truncated_normal_log_pdf(
-                prop_state[vector][-1], mu_star[-1], proposal_scale, lower=proposal_limits[0], upper=proposal_limits[1]
+                prop_state[vector][birth_location],
+                mu_star[-1], proposal_scale, lower=proposal_limits[0], upper=proposal_limits[1]
             )
         else:
             Q = np.array(1 / (proposal_scale**2), ndmin=2)
@@ -270,7 +287,7 @@ class ReversibleJump(MetropolisHastings):
         return prop_state, logp_pr_g_cr, logp_cr_g_pr
 
     def matched_death_transition(
-        self, current_state: dict, prop_state: dict, logp_pr_g_cr: float, logp_cr_g_pr: float, deletion_index: int
+        self, current_state: dict, prop_state: dict, logp_pr_g_cr: float, logp_cr_g_pr: float, deletion_index: int, current_mask: np.ndarray, prop_mask: np.ndarray
     ) -> Tuple[dict, float, float]:
         """Generate a proposal for coefficients associated with a death move, as the reverse of the birth proposal in self.matched_birth_transition().
 
@@ -294,15 +311,17 @@ class ReversibleJump(MetropolisHastings):
         proposal_scale = self.matching_params["scale"]
         proposal_limits = self.matching_params["limits"]
 
-        current_basis = current_state[matrix]
-        prop_basis = prop_state[matrix]
+        # current_basis = current_state[matrix]
+        # prop_basis = prop_state[matrix]
+        current_basis = current_state[matrix][:, current_mask[:, 0]]
+        prop_basis = prop_state[matrix][:, prop_mask[:, 0]]
         G = np.linalg.solve(
             current_basis.T @ current_basis + 1e-10 * np.eye(current_basis.shape[1]), current_basis.T @ prop_basis
         )
         F = np.insert(G, obj=deletion_index, values=np.eye(N=G.shape[0], M=1, k=-deletion_index).flatten(), axis=1)
-        mu_aug = np.linalg.solve(F, current_state[vector])
+        mu_aug = np.linalg.solve(F + 1e-8 * np.eye(F.shape[0]), current_state[vector][current_mask[:, 0]])
         param_del = mu_aug[deletion_index]
-        prop_state[vector] = np.delete(mu_aug, obj=deletion_index, axis=0)
+        # prop_state[vector] = np.delete(mu_aug, obj=deletion_index, axis=0)
 
         logp_pr_g_cr += np.log(np.linalg.det(F))
         if proposal_limits is not None:

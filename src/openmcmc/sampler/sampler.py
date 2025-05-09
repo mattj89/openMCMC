@@ -22,6 +22,7 @@ from typing import Union
 import numpy as np
 from scipy import sparse
 from scipy.stats import gamma, norm
+import jax.numpy as jnp
 
 from openmcmc import gmrf
 from openmcmc.distribution.location_scale import Normal
@@ -196,15 +197,15 @@ class NormalNormal(MCMCSampler):
         dist_param = self.model[self.param]
 
         if dist_param.domain_response_lower is None and dist_param.domain_response_upper is None:
-            current_state[self.param] = gmrf.sample_normal_canonical(b, Q)
+            current_state[self.param] = jnp.array(gmrf.sample_normal_canonical(b, Q))
         else:
-            current_state[self.param] = gmrf.gibbs_canonical_truncated_normal(
+            current_state[self.param] = jnp.array(gmrf.gibbs_canonical_truncated_normal(
                 b,
                 Q,
                 x=current_state[self.param],
                 lower=dist_param.domain_response_lower,
                 upper=dist_param.domain_response_upper,
-            )
+            ))
 
         return current_state
 
