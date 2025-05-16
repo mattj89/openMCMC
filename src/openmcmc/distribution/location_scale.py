@@ -158,12 +158,12 @@ class Normal(LocationScale):
             (Union[np.ndarray, float]): log-density computed using the values in state.
 
         """
-        Q = self.precision.predictor(state)
-        mu = self.mean.predictor(state)
+        Q, _ = self.precision.predictor(state)
+        mu, _ = self.mean.predictor(state)
         if self.check_domain_response(state):
             return -np.inf
         log_p = gmrf.multivariate_normal_pdf(x=state[self.response], mu=mu, Q=Q, by_observation=by_observation)
-        return log_p
+        return log_p, state
 
     def check_domain_response(self, state: dict) -> bool:
         """Checks whether the distributional response lies OUTSIDE the defined limits.
@@ -219,8 +219,9 @@ class Normal(LocationScale):
 
         """
         if param in self.response:
-            Q = self.precision.predictor(state)
-            r = state[self.response] - self.mean.predictor(state)
+            Q, _ = self.precision.predictor(state)
+            mu, _ = self.mean.predictor(state)
+            r = state[self.response] - mu
             grad = -Q @ r
             if hessian_required:
                 hessian = Q
@@ -231,8 +232,9 @@ class Normal(LocationScale):
                 return grad, hessian
 
         elif param in self.mean.get_grad_param_list() and param not in self.precision.get_grad_param_list():
-            Q = self.precision.predictor(state)
-            r = np.sum(state[self.response] - self.mean.predictor(state), axis=1, keepdims=True)
+            Q, _ = self.precision.predictor(state)
+            mu, _ = self.mean.predictor(state)
+            r = np.sum(state[self.response] - mu, axis=1, keepdims=True)
             grad_param = self.mean.grad(state, param)
             grad_times_prec = grad_param @ Q
             grad = grad_times_prec @ r
@@ -260,8 +262,8 @@ class Normal(LocationScale):
                 dimensionality of the response.
 
         """
-        mean = self.mean.predictor(state)
-        precision = self.precision.predictor(state)
+        mean, _ = self.mean.predictor(state)
+        precision, _ = self.precision.predictor(state)
 
         if self.domain_response_lower is None and self.domain_response_upper is None:
             return gmrf.sample_normal(mu=mean, Q=precision, n=n)
@@ -289,8 +291,8 @@ class LogNormal(LocationScale):
             (Union[np.ndarray, float]): POSITIVE log-density evaluated using the supplied state dictionary.
 
         """
-        Q = self.precision.predictor(state)
-        mu = self.mean.predictor(state)
+        Q, _ = self.precision.predictor(state)
+        mu, _ = self.mean.predictor(state)
         log_p = gmrf.multivariate_normal_pdf(x=np.log(state[self.response]), mu=mu, Q=Q, by_observation=True) - np.sum(
             np.log(state[self.response]), axis=0
         )
@@ -331,12 +333,14 @@ class LogNormal(LocationScale):
                 shape=(d, d), where d is the dimensionality of param.
 
         """
-        Q = self.precision.predictor(state)
+        Q, _ = self.precision.predictor(state)
         if param in self.response:
-            r = np.log(state[self.response]) - self.mean.predictor(state)
+            mu, _ = self.mean.predictor(state)
+            r = np.log(state[self.response]) - mu
             grad = -(1 / state[self.response]) * (1 + Q @ r)
         elif param in self.mean.get_grad_param_list() and param not in self.precision.get_grad_param_list():
-            r = np.sum(np.log(state[self.response]) - self.mean.predictor(state), axis=1, keepdims=True)
+            mu, _ = self.mean.predictor(state)
+            r = np.sum(np.log(state[self.response]) - mu, axis=1, keepdims=True)
             grad_param = self.mean.grad(state, param)
             grad = grad_param @ Q @ r
         else:
@@ -373,8 +377,9 @@ class LogNormal(LocationScale):
 
         """
         if param in self.response:
-            Q = self.precision.predictor(state)
-            r = np.log(state[self.response]) - self.mean.predictor(state)
+            Q, _ = self.precision.predictor(state)
+            mu, _ = self.mean.predictor(state)
+            r = np.log(state[self.response]) - mu
             reciprocal = 1 / state[self.response]
 
             if sparse.issparse(Q):
@@ -392,7 +397,7 @@ class LogNormal(LocationScale):
             hess_p = out + hess_p
 
         elif param in self.mean.get_grad_param_list() and param not in self.precision.get_grad_param_list():
-            Q = self.precision.predictor(state)
+            Q, _ = self.precision.predictor(state)
             grad_param = self.mean.grad(state, param)
             hess_p = state[self.response].shape[1] * grad_param @ Q @ grad_param.T
         else:
@@ -412,6 +417,6 @@ class LogNormal(LocationScale):
                 dimensionality of the response.
 
         """
-        mean = self.mean.predictor(state)
-        precision = self.precision.predictor(state)
+        mean, _ = self.mean.predictor(state)
+        precision, _ = self.precision.predictor(state)
         return np.exp(gmrf.sample_normal(mu=mean, Q=precision, n=n))

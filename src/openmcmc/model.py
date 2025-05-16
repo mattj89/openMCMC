@@ -66,7 +66,8 @@ class Model(dict):
         """
         log_prob = 0
         for dst in self.values():
-            log_prob += dst.log_p(state)
+            log_p_dst, _ = dst.log_p(state)
+            log_prob += log_p_dst
         return log_prob
 
     def grad_log_p(

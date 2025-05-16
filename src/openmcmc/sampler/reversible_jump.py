@@ -129,7 +129,8 @@ class ReversibleJump(MetropolisHastings):
         for associated_key in self.associated_params:
             new_element = self.model[associated_key].rvs(state=current_state, n=1)
             prop_state[associated_key] = np.concatenate((prop_state[associated_key], new_element), axis=1)
-            log_prop_density += self.model[associated_key].log_p(current_state, by_observation=True)
+            log_associated_density, _ = self.model[associated_key].log_p(current_state, by_observation=True)
+            log_prop_density += log_associated_density
         if callable(self.state_birth_function):
             prop_state, logp_pr_g_cr, logp_cr_g_pr = self.state_birth_function(current_state, prop_state)
         else:
@@ -173,7 +174,8 @@ class ReversibleJump(MetropolisHastings):
         deletion_index = randint.rvs(low=0, high=current_state[self.param])
         for associated_key in self.associated_params:
             prop_state[associated_key] = np.delete(prop_state[associated_key], obj=deletion_index, axis=1)
-            log_prop_density += self.model[associated_key].log_p(current_state, by_observation=True)
+            log_associated_density, _ = self.model[associated_key].log_p(current_state, by_observation=True)
+            log_prop_density += log_associated_density
 
         if callable(self.state_death_function):
             prop_state, logp_pr_g_cr, logp_cr_g_pr = self.state_death_function(

@@ -17,7 +17,7 @@ MixtureParameterMatrix  f= np.diag(lam[I])
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Union
+from typing import Union, Tuple
 
 import numpy as np
 from scipy import sparse
@@ -28,7 +28,7 @@ class Parameter(ABC):
     """Abstract base class for parameter."""
 
     @abstractmethod
-    def predictor(self, state: dict) -> np.ndarray:
+    def predictor(self, state: dict) -> Tuple[np.ndarray, dict]:
         """Create predictor from the state dictionary using the functional form defined in the specific subclass.
 
         Args:
@@ -36,6 +36,7 @@ class Parameter(ABC):
 
         Returns:
             (np.ndarray): predictor vector
+            (dict): state dictionary, possibly with updated elements.
 
         """
 
@@ -90,7 +91,7 @@ class Identity(Parameter):
 
     form: str
 
-    def predictor(self, state: dict) -> np.ndarray:
+    def predictor(self, state: dict, **kwargs) -> Tuple[np.ndarray, dict]:
         """Create predictor from the state dictionary using the functional form defined in the specific subclass.
 
         Args:
@@ -98,9 +99,10 @@ class Identity(Parameter):
 
         Returns:
             (np.ndarray): predictor vector
+            (dict): state dictionary, possibly with updated elements.
 
         """
-        return state[self.form]
+        return state[self.form], state
 
     def get_param_list(self) -> list:
         """Extract list of components from parameter specification that grad is defined for.
@@ -159,7 +161,7 @@ class LinearCombination(Parameter):
 
     form: dict
 
-    def predictor(self, state: dict) -> np.ndarray:
+    def predictor(self, state: dict) -> Tuple[np.ndarray, dict]:
         """Create predictor from the state dictionary using the functional form defined in the specific subclass.
 
         Args:
@@ -167,9 +169,10 @@ class LinearCombination(Parameter):
 
         Returns:
             (np.ndarray): predictor vector
+            (dict): state dictionary, possibly with updated elements.
 
         """
-        return self.predictor_conditional(state)
+        return self.predictor_conditional(state), state
 
     def predictor_conditional(self, state: dict, term_to_exclude: Union[str, list] = None) -> np.ndarray:
         """Extract predictor from the state dictionary using the functional form defined in the specific subclass excluding parameters.
@@ -316,7 +319,7 @@ class ScaledMatrix(Parameter):
     matrix: str
     scalar: str
 
-    def predictor(self, state: dict) -> np.ndarray:
+    def predictor(self, state: dict) -> Tuple[np.ndarray, dict]:
         """Create predictor from the state dictionary using the functional form defined in the specific subclass.
 
         Args:
@@ -324,9 +327,9 @@ class ScaledMatrix(Parameter):
 
         Returns:
             (np.ndarray): predictor vector
-
+            (dict): state dictionary, possibly with updated elements.
         """
-        return float(state[self.scalar].item()) * state[self.matrix]
+        return float(state[self.scalar].item()) * state[self.matrix], state
 
     def get_param_list(self) -> list:
         """Extract list of components from parameter specification that grad is defined for.
@@ -434,7 +437,7 @@ class MixtureParameterVector(MixtureParameter):
 
     """
 
-    def predictor(self, state: dict) -> np.ndarray:
+    def predictor(self, state: dict) -> Tuple[np.ndarray, dict]:
         """Create predictor from the state dictionary using the functional form defined in the specific subclass.
 
         Args:
@@ -442,9 +445,10 @@ class MixtureParameterVector(MixtureParameter):
 
         Returns:
             (np.ndarray): predictor vector
+            (dict): state dictionary, possibly with updated elements.
 
         """
-        return state[self.param][state[self.allocation].flatten()]
+        return state[self.param][state[self.allocation].flatten()], state
 
     def grad(self, state: dict, param: str):
         """Compute gradient of single parameter.
@@ -488,7 +492,7 @@ class MixtureParameterMatrix(MixtureParameter):
 
     """
 
-    def predictor(self, state: dict) -> sparse.csc_matrix:
+    def predictor(self, state: dict) -> Tuple[sparse.csc_matrix, dict]:
         """Create predictor from the state dictionary using the functional form defined in the specific subclass.
 
         Args:
@@ -496,9 +500,10 @@ class MixtureParameterMatrix(MixtureParameter):
 
         Returns:
             (sparse.csc_matrix): predictor vector
+            (dict): state dictionary, possibly with updated elements.
 
         """
-        return sparse.diags(diagonals=state[self.param][state[self.allocation]].flatten(), offsets=0, format="csc")
+        return sparse.diags(diagonals=state[self.param][state[self.allocation]].flatten(), offsets=0, format="csc"), state
 
     def grad(self, state: dict, param: str):
         """Compute gradient of single parameter.

@@ -150,8 +150,10 @@ class MetropolisHastings(MCMCSampler):
         logp_cs = 0
         logp_pr = 0
         for model in self.model.values():
-            logp_cs += model.log_p(current_state)
-            logp_pr += model.log_p(prop_state)
+            logp_cs_dist, _ = model.log_p(current_state)
+            logp_cs += logp_cs_dist
+            logp_pr_dist, _ = model.log_p(prop_state)
+            logp_pr += logp_pr_dist
         log_accept = logp_pr + logp_cr_g_pr - (logp_cs + logp_pr_g_cr)
 
         if self.accept_proposal(log_accept):
@@ -337,7 +339,7 @@ class ManifoldMALA(MetropolisHastings):
 
         """
         grad_cr, hessian_cr = self.model.grad_log_p(current_state, param=self.param, hessian_required=True)
-        precision_cr = hessian_cr / (self.step**2)
+        precision_cr = hessian_cr / (self.step**2) + 1e-2 * np.eye(hessian_cr.shape[0])
         chol_cr = gmrf.cholesky(precision_cr)
         mu_cr = current_state[self.param] + (1 / 2) * gmrf.cho_solve((chol_cr, True), grad_cr).reshape(grad_cr.shape)
         return mu_cr, chol_cr

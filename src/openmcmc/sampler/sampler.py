@@ -177,10 +177,11 @@ class NormalNormal(MCMCSampler):
         Q = sparse.csc_matrix((n_param, n_param))
         b = np.zeros(shape=(n_param, 1))
         for key, dist in self.model.items():
-            Q_rsp = dist.precision.predictor(current_state)
+            Q_rsp, _ = dist.precision.predictor(current_state)
             if self._is_response[key]:
                 Q += Q_rsp
-                b += Q_rsp @ dist.mean.predictor(current_state)
+                mu, _ = dist.mean.predictor(current_state)
+                b += Q_rsp @ mu
             else:
                 _, Q_dist = dist.grad_log_p(current_state, self.param)
                 Q += Q_dist
@@ -273,10 +274,13 @@ class NormalGamma(MCMCSampler):
         precision = self.model[self.normal_param].precision
         mean = self.model[self.normal_param].mean
         y = current_state[self.model[self.normal_param].response]
-        residual = y - mean.predictor(current_state)
+        mu, _ = mean.predictor(current_state)
+        residual = y - mu
 
-        a = deepcopy(self.model[self.param].shape.predictor(current_state))
-        b = deepcopy(self.model[self.param].rate.predictor(current_state))
+        shape, _ = self.model[self.param].shape.predictor(current_state)
+        rate, _ = self.model[self.param].rate.predictor(current_state)
+        a = deepcopy(shape)
+        b = deepcopy(rate)
 
         for k in range(current_state[self.param].shape[0]):
             precision_unscaled = precision.precision_unscaled(current_state, k)

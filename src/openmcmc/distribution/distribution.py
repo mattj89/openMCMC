@@ -249,13 +249,15 @@ class Gamma(Distribution):
             (Union[np.ndarray, float]): POSITIVE log-density evaluated using the supplied state dictionary.
 
         """
+        shape, _ = self.shape.predictor(state)
+        rate, _ = self.rate.predictor(state)
         log_p = np.sum(
-            stats.gamma.logpdf(state[self.response], self.shape.predictor(state), scale=1 / self.rate.predictor(state)),
+            stats.gamma.logpdf(state[self.response], shape, scale=1 / rate),
             axis=0,
         )
         if not by_observation:
             log_p = np.sum(log_p)
-        return log_p
+        return log_p, state
 
     def rvs(self, state, n: int = 1) -> np.ndarray:
         """Generate random samples from the Gamma distribution.
@@ -269,8 +271,8 @@ class Gamma(Distribution):
                 dimensionality of the response.
 
         """
-        shape = self.shape.predictor(state)
-        rate = self.rate.predictor(state)
+        shape, _ = self.shape.predictor(state)
+        rate, _ = self.rate.predictor(state)
         p = max(shape.shape[0], rate.shape[0])
         return stats.gamma.rvs(shape, scale=1 / rate, size=(p, n))
 
@@ -436,7 +438,7 @@ class Uniform(Distribution):
             log_p = np.ones(n) * log_p
         else:
             log_p = n * log_p
-        return log_p
+        return log_p, state
 
     def rvs(self, state, n: int = 1) -> np.ndarray:
         """Generate random samples from the distribution.
@@ -497,11 +499,11 @@ class Poisson(Distribution):
             (Union[np.ndarray, float]): POSITIVE log-density evaluated using the supplied state dictionary.
 
         """
-        rate = self.rate.predictor(state)
+        rate, _ = self.rate.predictor(state)
         logpmf = np.sum(stats.poisson.logpmf(state[self.response], rate), axis=0)
         if not by_observation:
             logpmf = np.sum(logpmf)
-        return logpmf
+        return logpmf, state
 
     def rvs(self, state: dict, n: int = 1) -> np.ndarray:
         """Generate random samples from the Poisson distribution.
@@ -515,5 +517,5 @@ class Poisson(Distribution):
                 dimensionality of the response.
 
         """
-        rate = self.rate.predictor(state)
+        rate, _ = self.rate.predictor(state)
         return stats.poisson.rvs(mu=rate, size=(rate.shape[0], n))

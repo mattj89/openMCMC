@@ -108,7 +108,7 @@ class MCMC:
             self.store["log_post"][i_it] = self.model.log_p(self.state)
             if self.model.response is not None:
                 for response, predictor in self.model.response.items():
-                    self.store[response][:, [i_it]] = getattr(self.model[response], predictor).predictor(self.state)
+                    self.store[response][:, [i_it]], _ = getattr(self.model[response], predictor).predictor(self.state)
 
         for sampler in self.samplers:
             if isinstance(sampler, MetropolisHastings):
