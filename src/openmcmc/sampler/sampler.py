@@ -183,7 +183,8 @@ class NormalNormal(MCMCSampler):
                 mu, _ = dist.mean.predictor(current_state)
                 b += Q_rsp @ mu
             else:
-                _, Q_dist = dist.grad_log_p(current_state, self.param)
+                # _, Q_dist = dist.grad_log_p(current_state, self.param)
+                Q_dist = dist.conditional_precision(current_state, self.param)
                 Q += Q_dist
                 if isinstance(dist.mean, Identity):
                     b += Q_rsp @ np.sum(current_state[key], axis=1, keepdims=True)

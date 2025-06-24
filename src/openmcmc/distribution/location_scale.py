@@ -186,6 +186,14 @@ class Normal(LocationScale):
                 return True
         return False
 
+    def conditional_precision(self, state: dict, param: str) -> np.ndarray:
+        precision, _ = self.precision.predictor(state)
+        if isinstance(self.mean, LinearCombination):
+            scale_matrix = state[self.mean.form[param]]
+            return scale_matrix.T @ (precision @ scale_matrix)
+        else:
+            return precision
+
     def grad_log_p(
         self, state: dict, param: str, hessian_required: bool = True
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:

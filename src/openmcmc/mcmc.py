@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy import sparse
 from tqdm import tqdm
+import jax.numpy as jnp
 
 from openmcmc.model import Model
 from openmcmc.sampler.metropolis_hastings import MetropolisHastings
@@ -65,6 +66,8 @@ class MCMC:
         for key, term in self.state.items():
             if sparse.issparse(term):
                 continue
+            if isinstance(term, jnp.ndarray):
+                continue
 
             if not isinstance(term, np.ndarray):
                 term = np.array(term, ndmin=2, dtype=np.float64)
@@ -109,6 +112,7 @@ class MCMC:
             if self.model.response is not None:
                 for response, predictor in self.model.response.items():
                     self.store[response][:, [i_it]], _ = getattr(self.model[response], predictor).predictor(self.state)
+
 
         for sampler in self.samplers:
             if isinstance(sampler, MetropolisHastings):
