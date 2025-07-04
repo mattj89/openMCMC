@@ -76,8 +76,8 @@ class Normal_jax(Distribution_jax):
             log_det_precision = self.log_det_precision
         else:
             log_det_precision = jnp.log(jnp.linalg.det(precision))
-        exponent_term = jnp.vdot(state[self.response] - mean, precision @ (state[self.response] - mean))
-        # exponent_term = jnp.vdot(state[self.response] - mean, state[self.response] - mean)
+        # exponent_term = jnp.vdot(state[self.response] - mean, precision @ (state[self.response] - mean))
+        exponent_term = jnp.vdot(state[self.response] - mean, state[self.response] - mean) * 100.0
         log_p = 0.5 * (log_det_precision - mean.shape[0] * jnp.log(2 * jnp.pi) - exponent_term)
         return log_p, state
 
@@ -117,7 +117,7 @@ class Normal_jax(Distribution_jax):
             # hess_log_p = self.hessian_functions[param](state, state[param], update_index)
             # hess_log_p = -np.asarray(hess_log_p).reshape((state[param].size, state[param].size))
             # hess_log_p = np.diag(np.abs(np.diag(hess_log_p))) # TODO: better!
-            hess_log_p = np.diag([1e3, 1e3, 1e4]) # fudge: just put something
+            hess_log_p = np.diag([1e1, 1e1, 1e2]) # fudge: just put something
             return grad_log_p, hess_log_p
         else:
             return grad_log_p
