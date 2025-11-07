@@ -24,8 +24,7 @@ class LinearCombination_jax(LinearCombination):
             jnp.ndarray:
             dict:
         """
-        if update_index is not None:
-            state = self.update_prefactors(state, update_index=update_index)
+        state = self.update_prefactors(state, update_index=update_index)
         return self.predictor_conditional(state), state
 
     @abstractmethod

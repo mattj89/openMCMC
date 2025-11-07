@@ -25,6 +25,8 @@ from scipy import linalg, sparse
 from scipy.sparse import linalg as sparse_linalg
 from scipy.stats import truncnorm
 
+import jax
+
 
 def sample_normal(
     mu: np.ndarray, Q: Union[np.ndarray, sparse.csc_matrix] = None, L: np.ndarray = None, n: int = 1
@@ -258,7 +260,10 @@ def gibbs_canonical_truncated_normal(
         else:
             cond_mean_i = v_i * (b[i] - Q[i, :] @ x + Q_ii * x[i])
 
-        x[i] = truncated_normal_rv(mean=cond_mean_i, scale=scale_i, lower=lower[i], upper=upper[i])
+        if isinstance(x, jax.Array):
+            x = x.at[i].set(truncated_normal_rv(mean=cond_mean_i, scale=scale_i, lower=lower[i], upper=upper[i]).item())
+        else:
+            x[i] = truncated_normal_rv(mean=cond_mean_i, scale=scale_i, lower=lower[i], upper=upper[i])
 
     return x
 

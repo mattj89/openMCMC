@@ -9,6 +9,7 @@ import numpy as np
 from scipy import sparse, stats
 
 import jax.numpy as jnp
+import jax.scipy as jsp
 from jax import grad, jit, vmap
 from jax import random
 from jax import jacfwd, jacrev, hessian
@@ -45,10 +46,11 @@ class Normal_jax(Distribution_jax):
     Attributes:
 
     """
-    mean: Parameter
-    precision: Parameter
+    mean: LinearCombination_jax
+    precision: LinearCombination_jax
     jit_compile: bool = True
     fixed_precision: bool = True
+    scalar_precision: float = 1.0
     log_det_precision: float = 1.0
     domain_response_lower: np.ndarray = None
     domain_response_upper: np.ndarray = None
@@ -71,14 +73,17 @@ class Normal_jax(Distribution_jax):
 
         """
         mean, state = self.mean.predictor(state, update_index=update_index)
-        precision, state = self.precision.predictor(state)
-        if self.fixed_precision:
-            log_det_precision = self.log_det_precision
-        else:
-            log_det_precision = jnp.log(jnp.linalg.det(precision))
+        # precision, state = self.precision.predictor(state)
         # exponent_term = jnp.vdot(state[self.response] - mean, precision @ (state[self.response] - mean))
-        exponent_term = jnp.vdot(state[self.response] - mean, state[self.response] - mean) * 100.0
-        log_p = 0.5 * (log_det_precision - mean.shape[0] * jnp.log(2 * jnp.pi) - exponent_term)
+        exponent_term = jnp.vdot(state[self.response] - mean, state[self.response] - mean) * self.scalar_precision
+        log_p = 0.5 * (state[self.response].shape[0] *
+                        (jnp.log(self.scalar_precision) - jnp.log(2 * jnp.pi)) - exponent_term)
+        if self.domain_response_lower is not None:
+            norm_const = 1.0 - jsp.stats.norm.cdf(
+                self.domain_response_lower, loc=mean, scale=jnp.sqrt(1.0 / self.scalar_precision)
+            )
+            log_p -= jnp.log(norm_const) * state[self.response].shape[0]
+            # TODO (04/11/25): hard-coded for the shape of s as a test.
         return log_p, state
 
     def log_p(self, state: dict, update_index: bool = None) -> Tuple[jnp.ndarray, dict]:
@@ -109,15 +114,15 @@ class Normal_jax(Distribution_jax):
             self.grad_functions[param] = jit(sparse_jax.grad(temp_log_p, argnums=1), static_argnums=(2, 3))
             self.hessian_functions[param] = jit(hessian(temp_log_p, argnums=1), static_argnums=(2, 3))
 
-    def grad_log_p(self, state: dict, param: str, update_index: int = 0, hessian_required: bool = True) -> jnp.ndarray:
+    def grad_log_p(self, state: dict, param: str, update_index: int = None, hessian_required: bool = True) -> jnp.ndarray:
         """Evaluate the gradient of the log-posterior distribution."""
         grad_log_p = self.grad_functions[param](state, state[param], update_index)
         grad_log_p = np.asarray(grad_log_p).reshape((state[param].size, 1))
         if hessian_required:
-            # hess_log_p = self.hessian_functions[param](state, state[param], update_index)
-            # hess_log_p = -np.asarray(hess_log_p).reshape((state[param].size, state[param].size))
+            hess_log_p = self.hessian_functions[param](state, state[param], update_index)
+            hess_log_p = -np.asarray(hess_log_p).reshape((state[param].size, state[param].size))
             # hess_log_p = np.diag(np.abs(np.diag(hess_log_p))) # TODO: better!
-            hess_log_p = np.diag([1e1, 1e1, 1e2]) # fudge: just put something
+            # hess_log_p = np.diag([1e1, 1e1, 1e2]) # fudge: just put something
             return grad_log_p, hess_log_p
         else:
             return grad_log_p
@@ -175,9 +180,9 @@ class Uniform_jax(Distribution_jax):
         self, state: dict, param: str, hessian_required: bool = True
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """Evaluate trivial grad & hessian of log p."""
-        grad = jnp.zeros(shape=state[param].shape)
+        grad = jnp.zeros(shape=(state[param].size, 1))
         if hessian_required:
-            hess = jnp.zeros(shape=(state[param].shape[0], state[param].shape[0]))
+            hess = jnp.zeros(shape=(state[param].size, state[param].size))
             return grad, hess
         return grad
 
