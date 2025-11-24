@@ -8,6 +8,7 @@ from typing import Tuple, Union
 import numpy as np
 from scipy import sparse, stats
 
+import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
 from jax import grad, jit, vmap
@@ -69,6 +70,7 @@ class Normal_jax(Distribution_jax):
     """
     mean: LinearCombination_jax
     precision: LinearCombination_jax
+    terms_in_likelihood: list
     jit_compile: bool = True
     scalar_precision: float = 1.0
     domain_response_lower: Union[float, None] = None
@@ -127,10 +129,13 @@ class Normal_jax(Distribution_jax):
             state (dict): updated state dictionary.
 
         """
+        likelihood_state = self.make_likelihood_state(state)
         if self.jit_compile:
-            log_p, state = self.log_p_jit(state, update_index)
+            log_p, likelihood_state = self.log_p_jit(likelihood_state, update_index)
         else:
-            log_p, state = self.log_p_internal(state, update_index=update_index)
+            log_p, likelihood_state = self.log_p_internal(likelihood_state, update_index=update_index)
+        if "A" in self.terms_in_likelihood:
+            state["A"] = likelihood_state["A"]
         return log_p, state
 
     def initialise_grad(self):
@@ -173,17 +178,27 @@ class Normal_jax(Distribution_jax):
             hess_log_p (np.ndarray, optional): hessian of the log-posterior (if hessian_required is True).
 
         """
-        grad_log_p = self.grad_functions[param](state, state[param], update_index)
-        grad_log_p = np.asarray(grad_log_p).reshape((state[param].size, 1))
+        likelihood_state = self.make_likelihood_state(state)
+        grad_log_p = self.grad_functions[param](likelihood_state, likelihood_state[param], update_index)
+        grad_log_p = np.asarray(grad_log_p).reshape((likelihood_state[param].size, 1))
         if hessian_required:
-            hess_log_p = self.hessian_functions[param](state, state[param], update_index)
-            hess_log_p = -np.asarray(hess_log_p).reshape((state[param].size, state[param].size))
+            hess_log_p = self.hessian_functions[param](likelihood_state, likelihood_state[param], update_index)
+            hess_log_p = -np.asarray(hess_log_p).reshape((likelihood_state[param].size, likelihood_state[param].size))
             # hess_log_p = np.diag(np.abs(np.diag(hess_log_p)))
             # TODO (07/11/25): is there a better solution for the Hessian? Or should we just eliminate cases where this
             # is required for now?
             return grad_log_p, hess_log_p
         else:
             return grad_log_p
+        
+    def make_likelihood_state(self, state: dict):
+        """Prepare state for jit and grad operations."""
+        likelihood_state = {}
+        for param in self.terms_in_likelihood:
+            likelihood_state[param] = state[param]
+        if self.response == "y":
+            likelihood_state["y"] = state["y"] - (state["B_bg"] @ state["bg"])
+        return likelihood_state
 
     def conditional_precision(self, state: dict, param: str) -> np.ndarray:
         """get the conditional precision matrix for NormalNormal updates.
@@ -194,9 +209,13 @@ class Normal_jax(Distribution_jax):
         precision, _ = self.precision.predictor(state)
         if isinstance(self.mean, LinearCombination_jax):
             scale_matrix = state[self.mean.form[param]]
-            return np.asarray(scale_matrix.T @ (precision @ scale_matrix))
+            BtQB = scale_matrix.T @ (precision @ scale_matrix)
+            if isinstance(BtQB, jax.Array):
+                return np.asarray(BtQB)
+            else:
+                return BtQB
         else:
-            return np.asarray(precision)
+            return precision
 
     def rvs(self, state: dict, n: int = 1) -> np.ndarray:
         """Generate a random sample from the specified distribution.

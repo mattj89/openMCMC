@@ -26,7 +26,9 @@ class LinearCombination_jax(LinearCombination):
 
         """
         state = self.update_prefactors(state, update_index=update_index)
-        return self.predictor_conditional(state), state
+        predictor_vector = state["A"] @ state["s"]
+        # return self.predictor_conditional(state), state
+        return predictor_vector, state
 
     def predictor_conditional(self, state, term_to_exclude = None):
         """Overloaded version, to take account of the fact that the terms are being screened in/out by the RJ
@@ -48,6 +50,10 @@ class LinearCombination_jax(LinearCombination):
 
         if isinstance(term_to_exclude, str):
             term_to_exclude = [term_to_exclude]
+
+        # manually exclude bg (to prevent having to pass it into compile)
+        # if "bg" not in term_to_exclude:
+        #     term_to_exclude.append("bg")
 
         sum_terms = 0
         for prm, prefactor in self.form.items():
