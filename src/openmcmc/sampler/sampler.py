@@ -22,6 +22,7 @@ from typing import Union
 import numpy as np
 from scipy import sparse
 from scipy.stats import gamma, norm
+import jax.numpy as jnp
 
 from openmcmc import gmrf
 from openmcmc.distribution.location_scale import Normal
@@ -191,7 +192,11 @@ class NormalNormal(MCMCSampler):
                 else:
                     predictor_exclude = dist.mean.predictor_conditional(current_state, term_to_exclude=self.param)
                     A = current_state[dist.mean.form[self.param]]
-                    b += A.T @ Q_rsp @ (current_state[key] - predictor_exclude)
+                    if Q_rsp.shape[1] == 1:
+                        b += A.T @ (Q_rsp * (current_state[key] - predictor_exclude))
+                        # NOTE (24/11/25): introduced because of JAX vector precision. Can it be better?
+                    else:
+                        b += A.T @ Q_rsp @ (current_state[key] - predictor_exclude)
 
         dist_param = self.model[self.param]
 
@@ -232,6 +237,8 @@ class NormalGamma(MCMCSampler):
         model (Model): conditional model with distributions related to param only
 
     """
+    expanded_vector: str = None
+    allocation: str = None
 
     def __post_init__(self):
         """Complete initialization of sampler.
@@ -290,6 +297,8 @@ class NormalGamma(MCMCSampler):
         no_warning_b = np.where(b == 0, np.inf, b)
         no_warning_scale = np.where(b == 0, np.inf, 1 / no_warning_b)
         current_state[self.param] = gamma.rvs(a, scale=no_warning_scale).reshape(current_state[self.param].shape)
+        if self.expanded_vector is not None:
+            current_state[self.expanded_vector] = jnp.take(current_state[self.param], current_state[self.allocation])
         return current_state
 
 

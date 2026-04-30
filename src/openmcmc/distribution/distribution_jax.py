@@ -101,10 +101,13 @@ class Normal_jax(Distribution_jax):
             state (dict): updated state dictionary.
 
         """
-        mean, state = self.mean.predictor(state, update_index=update_index)
-        exponent_term = jnp.vdot(state[self.response] - mean, state[self.response] - mean) * self.scalar_precision
-        log_p = 0.5 * (state[self.response].shape[0] *
-                        (jnp.log(self.scalar_precision) - jnp.log(2 * jnp.pi)) - exponent_term)
+        mean, state = self.mean.predictor(state, update_index=update_index, include_background=False)
+        precision, state = self.precision.predictor(state)
+        exponent_term = jnp.vdot(state[self.response] - mean, precision * (state[self.response] - mean))
+        precision_norm_term = jnp.sum(jnp.log(precision))
+        if precision.shape[0] == 1:
+            precision_norm_term = precision_norm_term * state[self.response].shape[0]
+        log_p = 0.5 * (precision_norm_term - state[self.response].shape[0] * jnp.log(2 * jnp.pi) - exponent_term)
         if self.domain_response_lower is not None:
             norm_const = 1.0 - jsp.stats.norm.cdf(
                 self.domain_response_lower, loc=mean, scale=jnp.sqrt(1.0 / self.scalar_precision)
@@ -209,7 +212,7 @@ class Normal_jax(Distribution_jax):
         precision, _ = self.precision.predictor(state)
         if isinstance(self.mean, LinearCombination_jax):
             scale_matrix = state[self.mean.form[param]]
-            BtQB = scale_matrix.T @ (precision @ scale_matrix)
+            BtQB = scale_matrix.T @ (precision * scale_matrix)
             if isinstance(BtQB, jax.Array):
                 return np.asarray(BtQB)
             else:
